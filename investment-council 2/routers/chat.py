@@ -5,6 +5,7 @@ Solo mode:   real per-token streaming via Anthropic streaming API.
 Multi mode:  concurrent asyncio tasks; results stream in completion order.
 """
 
+from __future__ import annotations
 import asyncio
 import json
 from typing import AsyncIterator

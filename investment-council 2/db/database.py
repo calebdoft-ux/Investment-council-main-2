@@ -1,3 +1,4 @@
+from __future__ import annotations
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime

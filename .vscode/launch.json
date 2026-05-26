@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Current File with PYTHONPATH",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/investment-council 2",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/investment-council 2"
+      }
+    },
+    {
+      "name": "FastAPI: main.py",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/investment-council 2/main.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/investment-council 2",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/investment-council 2"
+      }
+    }
+  ]
+}
