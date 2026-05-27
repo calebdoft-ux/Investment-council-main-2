@@ -25,16 +25,31 @@ const NEWS_DESK = [
 const ALL_AGENTS = {};
 [...INVESTORS, ...RESEARCHERS, ...NEWS_DESK].forEach(a => ALL_AGENTS[a.id] = a);
 
+const MAX_HIST = 8; // max user/assistant pairs kept in history for API calls
+
 // ═══════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════
 let team = 'inv', iMode = 'solo', rMode = 'solo', nMode = 'solo';
 let selMember = null, debMembers = [], debTeam = 'inv';
+// chatHist includes both user and advisor messages for history display + solo API context
 let chatHist = [], loading = false;
 let portfolio = {}, cash = 0, watchlist = [], journal = [];
 let sessions = [], sesId = null;
 let briefing = '';
 let lastQuote = null;
+
+// Per-agent mic state: undefined/true = enabled, false = disabled
+const enabledAgents = {};
+
+// Active streaming state
+let activeBlock = null;
+let activeSynthBody = null;
+let soloStreamBubble = null;
+let soloStreamText = '';
+let seqStreamEntry = null;
+let seqStreamText = '';
+const blockTypingRows = {};
 
 // ═══════════════════════════════════════
 // INIT
@@ -42,6 +57,7 @@ let lastQuote = null;
 async function init() {
   renderSidebars();
   await loadData();
+  await loadJournal();
   updateCtx();
   renderHist();
 }
@@ -65,6 +81,26 @@ async function loadData() {
 }
 
 // ═══════════════════════════════════════
+// AGENT ENABLE TOGGLE
+// ═══════════════════════════════════════
+function toggleAgent(id) {
+  enabledAgents[id] = enabledAgents[id] === false ? true : false;
+  const btn = document.getElementById('mic-' + id);
+  if (btn) {
+    const on = enabledAgents[id] !== false;
+    btn.className = 'mic-tog' + (on ? '' : ' off');
+    btn.title = on ? 'Click to mute' : 'Click to unmute';
+  }
+}
+
+function getEnabledAgentIds() {
+  const allIds = [...INVESTORS, ...RESEARCHERS, ...NEWS_DESK].map(a => a.id);
+  const hasDisabled = allIds.some(id => enabledAgents[id] === false);
+  if (!hasDisabled) return []; // empty = all enabled (backend default)
+  return allIds.filter(id => enabledAgents[id] !== false);
+}
+
+// ═══════════════════════════════════════
 // SIDEBAR RENDER
 // ═══════════════════════════════════════
 function renderSidebars() {
@@ -76,10 +112,16 @@ function renderSidebars() {
 function renderML(id, arr) {
   const el = document.getElementById(id);
   if (!el) return;
-  el.innerHTML = arr.map(m => `<button class="mem-btn" id="mb-${m.id}" onclick="selMem('${m.id}')">
-    <div class="mem-av" style="background:${m.bg}">${m.emoji}</div>
-    <div><div class="mem-name">${m.name}</div><div class="mem-role">${m.role}</div></div>
-  </button>`).join('');
+  el.innerHTML = arr.map(m => {
+    const on = enabledAgents[m.id] !== false;
+    return `<div class="mem-row">
+      <button class="mem-btn" id="mb-${m.id}" onclick="selMem('${m.id}')">
+        <div class="mem-av" style="background:${m.bg}">${m.emoji}</div>
+        <div><div class="mem-name">${m.name}</div><div class="mem-role">${m.role}</div></div>
+      </button>
+      <button class="mic-tog${on ? '' : ' off'}" id="mic-${m.id}" onclick="event.stopPropagation();toggleAgent('${m.id}')" title="${on ? 'Click to mute' : 'Click to unmute'}">●</button>
+    </div>`;
+  }).join('');
 }
 
 // ═══════════════════════════════════════
@@ -94,9 +136,9 @@ function switchTeam(t) {
   });
   showChat(); clearMsgs(); updateCtx();
   const h = document.getElementById('hints');
-  if (t === 'inv') h.innerHTML = '<span class="hint" onclick="fc(\'/add \')">/add</span><span class="hint" onclick="fc(\'/sell \')">/sell</span><span class="hint" onclick="fc(\'/watch \')">/watch</span><span class="hint" onclick="fc(\'/pm\')">/pm</span><span class="hint" onclick="setMode(\'all\')">/council</span><span class="hint" onclick="openDebate(\'inv\')">/debate</span>';
-  else if (t === 'res') h.innerHTML = '<span class="hint" onclick="setRMode(\'all\')">All Researchers</span><span class="hint" onclick="setRMode(\'brief\')">Brief Investors</span><span class="hint" onclick="fc(\'/find \')">/find</span>';
-  else h.innerHTML = '<span class="hint" onclick="fc(\'/news \')">/news</span><span class="hint" onclick="setNMode(\'all\')">Full Desk</span><span class="hint" onclick="setNMode(\'brief\')">Brief All Teams</span>';
+  if (t === 'inv') h.innerHTML = '<span class="hint" onclick="fc(\'/add \')">/add</span><span class="hint" onclick="fc(\'/sell \')">/sell</span><span class="hint" onclick="fc(\'/watch \')">/watch</span><span class="hint" onclick="fc(\'/pm\')">/pm</span><span class="hint" onclick="setMode(\'all\')">/council</span><span class="hint" onclick="setMode(\'round\')">/round</span><span class="hint" onclick="openDebate(\'inv\')">/debate</span>';
+  else if (t === 'res') h.innerHTML = '<span class="hint" onclick="setRMode(\'all\')">All Researchers</span><span class="hint" onclick="setRMode(\'round\')">Round Table</span><span class="hint" onclick="setRMode(\'brief\')">Brief Investors</span><span class="hint" onclick="fc(\'/find \')">/find</span>';
+  else h.innerHTML = '<span class="hint" onclick="fc(\'/news \')">/news</span><span class="hint" onclick="setNMode(\'all\')">Full Desk</span><span class="hint" onclick="setNMode(\'round\')">Round Table</span><span class="hint" onclick="setNMode(\'brief\')">Brief All Teams</span>';
 }
 
 function showChat() {
@@ -119,7 +161,7 @@ function switchTab(t) {
 
 function setMode(m) {
   iMode = m;
-  ['solo','all','pm','debate'].forEach(x => document.getElementById('mi-'+x)?.classList.remove('active'));
+  ['solo','all','pm','debate','round'].forEach(x => document.getElementById('mi-'+x)?.classList.remove('active'));
   document.getElementById('mi-'+m)?.classList.add('active');
   if (m === 'debate') { openDebate('inv'); return; }
   if (m !== 'solo') selMember = null;
@@ -128,7 +170,7 @@ function setMode(m) {
 
 function setRMode(m) {
   rMode = m;
-  ['solo','all','brief'].forEach(x => document.getElementById('mr-'+x)?.classList.remove('active'));
+  ['solo','all','brief','round'].forEach(x => document.getElementById('mr-'+x)?.classList.remove('active'));
   document.getElementById('mr-'+m)?.classList.add('active');
   if (m !== 'solo') selMember = null;
   chatHist = []; updateCtx(); clearMsgs();
@@ -136,7 +178,7 @@ function setRMode(m) {
 
 function setNMode(m) {
   nMode = m;
-  ['solo','all','brief'].forEach(x => document.getElementById('mn-'+x)?.classList.remove('active'));
+  ['solo','all','brief','round'].forEach(x => document.getElementById('mn-'+x)?.classList.remove('active'));
   document.getElementById('mn-'+m)?.classList.add('active');
   if (m !== 'solo') selMember = null;
   chatHist = []; updateCtx(); clearMsgs();
@@ -146,9 +188,9 @@ function selMem(id) {
   selMember = id;
   document.querySelectorAll('.mem-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('mb-'+id)?.classList.add('active');
-  if (team === 'inv') { iMode = 'solo'; ['solo','all','pm','debate'].forEach(x => document.getElementById('mi-'+x)?.classList.remove('active')); document.getElementById('mi-solo')?.classList.add('active'); }
-  else if (team === 'res') { rMode = 'solo'; ['solo','all','brief'].forEach(x => document.getElementById('mr-'+x)?.classList.remove('active')); document.getElementById('mr-solo')?.classList.add('active'); }
-  else { nMode = 'solo'; ['solo','all','brief'].forEach(x => document.getElementById('mn-'+x)?.classList.remove('active')); document.getElementById('mn-solo')?.classList.add('active'); }
+  if (team === 'inv') { iMode = 'solo'; ['solo','all','pm','debate','round'].forEach(x => document.getElementById('mi-'+x)?.classList.remove('active')); document.getElementById('mi-solo')?.classList.add('active'); }
+  else if (team === 'res') { rMode = 'solo'; ['solo','all','brief','round'].forEach(x => document.getElementById('mr-'+x)?.classList.remove('active')); document.getElementById('mr-solo')?.classList.add('active'); }
+  else { nMode = 'solo'; ['solo','all','brief','round'].forEach(x => document.getElementById('mn-'+x)?.classList.remove('active')); document.getElementById('mn-solo')?.classList.add('active'); }
   chatHist = []; updateCtx(); clearMsgs();
 }
 
@@ -160,18 +202,21 @@ function updateCtx() {
   badge.style.display = 'inline-block';
   if (team === 'inv') {
     if (iMode === 'solo' && selMember) { const m = ALL_AGENTS[selMember]; avs.innerHTML = `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`; name.textContent = m.name; badge.className = 'ctx-badge b-solo'; badge.textContent = '1-ON-1'; }
-    else if (iMode === 'all') { avs.innerHTML = INVESTORS.slice(0,6).map(m => `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`).join(''); name.textContent = 'Investment Council'; badge.className = 'ctx-badge b-all'; badge.textContent = 'ALL 6'; }
+    else if (iMode === 'all') { avs.innerHTML = INVESTORS.slice(0,6).map(m => `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`).join(''); name.textContent = 'Investment Council'; badge.className = 'ctx-badge b-all'; badge.textContent = 'PARALLEL'; }
+    else if (iMode === 'round') { avs.innerHTML = INVESTORS.slice(0,6).map(m => `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`).join(''); name.textContent = 'Round Table'; badge.className = 'ctx-badge b-all'; badge.textContent = 'SEQUENTIAL'; }
     else if (iMode === 'pm') { avs.innerHTML = `<div class="ctx-av" style="background:rgba(82,196,138,.15)">🏦</div>`; name.textContent = 'PM Synthesis'; badge.className = 'ctx-badge b-pm'; badge.textContent = 'PM'; }
     else if (iMode === 'debate' && debMembers.length >= 2) { const dm = debMembers.map(x => ALL_AGENTS[x]); avs.innerHTML = dm.map(m => `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`).join(''); name.textContent = dm.map(m => m.name.split(' ')[0]).join(' vs '); badge.className = 'ctx-badge b-debate'; badge.textContent = 'DEBATE'; }
     else { avs.innerHTML = ''; name.textContent = 'Investment Council'; badge.style.display = 'none'; }
   } else if (team === 'res') {
     if (rMode === 'solo' && selMember) { const m = ALL_AGENTS[selMember]; avs.innerHTML = `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`; name.textContent = m.name; badge.className = 'ctx-badge b-res'; badge.textContent = 'RESEARCH'; }
-    else if (rMode === 'all') { avs.innerHTML = RESEARCHERS.map(m => `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`).join(''); name.textContent = 'Research Team'; badge.className = 'ctx-badge b-res'; badge.textContent = 'FULL TEAM'; }
+    else if (rMode === 'all') { avs.innerHTML = RESEARCHERS.map(m => `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`).join(''); name.textContent = 'Research Team'; badge.className = 'ctx-badge b-res'; badge.textContent = 'PARALLEL'; }
+    else if (rMode === 'round') { avs.innerHTML = RESEARCHERS.map(m => `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`).join(''); name.textContent = 'Research Dialogue'; badge.className = 'ctx-badge b-res'; badge.textContent = 'SEQUENTIAL'; }
     else if (rMode === 'brief') { avs.innerHTML = [...RESEARCHERS,...INVESTORS.slice(0,2)].map(m => `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`).join(''); name.textContent = 'Research → Investors'; badge.className = 'ctx-badge b-res'; badge.textContent = 'BRIEFING'; }
     else { avs.innerHTML = ''; name.textContent = 'Research Team'; badge.style.display = 'none'; }
   } else {
     if (nMode === 'solo' && selMember) { const m = ALL_AGENTS[selMember]; avs.innerHTML = `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`; name.textContent = m.name; badge.className = 'ctx-badge b-news'; badge.textContent = 'NEWS'; }
-    else if (nMode === 'all') { avs.innerHTML = NEWS_DESK.map(m => `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`).join(''); name.textContent = 'News Desk'; badge.className = 'ctx-badge b-news'; badge.textContent = 'FULL DESK'; }
+    else if (nMode === 'all') { avs.innerHTML = NEWS_DESK.map(m => `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`).join(''); name.textContent = 'News Desk'; badge.className = 'ctx-badge b-news'; badge.textContent = 'PARALLEL'; }
+    else if (nMode === 'round') { avs.innerHTML = NEWS_DESK.map(m => `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`).join(''); name.textContent = 'News Dialogue'; badge.className = 'ctx-badge b-news'; badge.textContent = 'SEQUENTIAL'; }
     else if (nMode === 'brief') { avs.innerHTML = [...NEWS_DESK,...INVESTORS.slice(0,3)].map(m => `<div class="ctx-av" style="background:${m.bg}">${m.emoji}</div>`).join(''); name.textContent = 'News → All Teams'; badge.className = 'ctx-badge b-news'; badge.textContent = 'BRIEFING'; }
     else { avs.innerHTML = ''; name.textContent = 'News Desk'; badge.style.display = 'none'; }
   }
@@ -185,18 +230,21 @@ function clearMsgs() {
   let txt = '';
   if (team === 'inv') {
     if (iMode === 'solo' && selMember) { const m = ALL_AGENTS[selMember]; txt = `<div style="font-size:22px;margin-bottom:8px">${m.emoji}</div><div style="font-size:13px;font-family:'Instrument Serif',serif;color:var(--text);margin-bottom:3px">${m.name}</div><div>${m.role}</div><div style="margin-top:6px;color:var(--green)">● Streaming enabled</div>`; }
-    else if (iMode === 'all') txt = 'All 6 investors run concurrently — fastest responder appears first.';
+    else if (iMode === 'all') txt = 'All enabled advisors run concurrently — fastest responder appears first. Toggle ● buttons to mute/unmute.';
+    else if (iMode === 'round') txt = 'Advisors respond one by one, each building on what the previous said. Toggle ● buttons to control who speaks.';
     else if (iMode === 'pm') txt = 'Council deliberates in parallel, then the Chair streams a structured verdict.';
     else if (iMode === 'debate') txt = 'Debate ready. Members argue in parallel.';
     else txt = 'Select a mode or pick a member from the sidebar.';
   } else if (team === 'res') {
     if (rMode === 'solo' && selMember) { const m = ALL_AGENTS[selMember]; txt = `<div style="font-size:22px;margin-bottom:8px">${m.emoji}</div><div style="font-size:13px;font-family:'Instrument Serif',serif;color:var(--text);margin-bottom:3px">${m.name}</div><div>${m.role}</div>`; }
-    else if (rMode === 'all') txt = 'All 5 researchers run concurrently — fastest appears first.';
+    else if (rMode === 'all') txt = 'All enabled researchers run concurrently. Toggle ● to mute/unmute.';
+    else if (rMode === 'round') txt = 'Researchers respond sequentially, each building on prior analysis.';
     else if (rMode === 'brief') txt = 'Researchers analyze in parallel, then brief the investment council.';
     else txt = 'Select a researcher or mode.';
   } else {
     if (nMode === 'solo' && selMember) { const m = ALL_AGENTS[selMember]; txt = `<div style="font-size:22px;margin-bottom:8px">${m.emoji}</div><div style="font-size:13px;font-family:'Instrument Serif',serif;color:var(--text);margin-bottom:3px">${m.name}</div><div>${m.role}</div>`; }
-    else if (nMode === 'all') txt = 'Full news desk runs concurrently — fastest appears first.';
+    else if (nMode === 'all') txt = 'Full news desk runs concurrently. Toggle ● to mute/unmute.';
+    else if (nMode === 'round') txt = 'News reporters respond sequentially, building a layered analysis.';
     else if (nMode === 'brief') txt = 'News desk analyzes, then briefs investors and research team.';
     else txt = 'Paste a headline or ask about current market events.';
   }
@@ -207,14 +255,6 @@ function clearMsgs() {
 // ═══════════════════════════════════════
 // SSE STREAMING ENGINE
 // ═══════════════════════════════════════
-
-// Active blocks and bubble refs
-let activeBlock = null;
-let activeSynthBody = null;
-let soloStreamBubble = null;
-let soloStreamText = '';
-// Track typing rows inside blocks: advisor_id → DOM element
-const blockTypingRows = {};
 
 async function streamChat(requestBody) {
   const response = await fetch('/api/chat', {
@@ -238,7 +278,7 @@ async function streamChat(requestBody) {
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
-    buffer = lines.pop(); // keep incomplete line
+    buffer = lines.pop();
     for (const line of lines) {
       if (!line.startsWith('data: ')) continue;
       try {
@@ -253,18 +293,13 @@ function handleSSEEvent(ev) {
   const msgs = document.getElementById('messages');
 
   switch (ev.type) {
+
     // ── Solo streaming ──────────────────────────────────────
     case 'typing': {
       if (!activeBlock) {
-        // Solo mode typing indicator
         const row = addTyping(ev.advisor);
         row.dataset.advisorId = ev.advisor.id;
-        // For synth mode, mark it
-        if (ev.advisor.id === 'chair') {
-          row.dataset.isSynth = '1';
-        }
       } else {
-        // Typing inside a block (should be handled by typing_in_block, but fallback)
         addDTypingToBlock(activeBlock, ev.advisor);
       }
       break;
@@ -273,9 +308,7 @@ function handleSSEEvent(ev) {
     case 'token': {
       const m = ALL_AGENTS[ev.advisor_id];
       if (!m) break;
-
       if (ev.advisor_id === 'chair' && activeSynthBody) {
-        // Streaming into synth body
         const existing = activeSynthBody.dataset.rawText || '';
         const newText = existing + ev.text;
         activeSynthBody.dataset.rawText = newText;
@@ -290,17 +323,17 @@ function handleSSEEvent(ev) {
     }
 
     case 'advisor_complete': {
-      // Remove any solo typing indicator for this advisor
       document.querySelectorAll('.typing-row').forEach(r => {
         if (r.dataset.advisorId === ev.advisor.id) r.remove();
       });
       soloStreamBubble?.classList.remove('streaming');
       soloStreamBubble = null;
       soloStreamText = '';
-      // Add the final message if no bubble was created (first token creates it)
       if (!document.querySelector(`.msg-row[data-advisor="${ev.advisor.id}"]`)) {
         addBot(ev.full_text, ev.advisor);
       }
+      // Save to history
+      chatHist.push({ role: 'assistant', content: ev.full_text, mid: ev.advisor.id });
       msgs.scrollTop = 9e9;
       break;
     }
@@ -323,12 +356,13 @@ function handleSSEEvent(ev) {
     }
 
     case 'block_entry': {
-      // Remove typing row for this advisor
       if (blockTypingRows[ev.advisor.id]) {
         blockTypingRows[ev.advisor.id].remove();
         delete blockTypingRows[ev.advisor.id];
       }
       if (activeBlock) addDEntry(activeBlock, ev.advisor, ev.text);
+      // Save to history
+      chatHist.push({ role: 'assistant', content: ev.text, mid: ev.advisor.id });
       msgs.scrollTop = 9e9;
       break;
     }
@@ -356,6 +390,51 @@ function handleSSEEvent(ev) {
       break;
     }
 
+    // ── Sequential (Round Table) events ───────────────────────
+    case 'seq_token_start': {
+      // Remove the typing placeholder for this agent
+      if (blockTypingRows[ev.advisor.id]) {
+        blockTypingRows[ev.advisor.id].remove();
+        delete blockTypingRows[ev.advisor.id];
+      }
+      if (activeBlock) {
+        const d = document.createElement('div');
+        d.className = 'block-entry';
+        d.innerHTML = `<div class="be-av" style="background:${ev.advisor.bg}">${ev.advisor.emoji}</div>
+          <div style="flex:1">
+            <div class="be-name" style="color:${ev.advisor.color}">${ev.advisor.name} <span style="color:var(--t3);font-weight:400">${ev.advisor.tag}</span></div>
+            <div class="be-body streaming" id="seq-body-${ev.advisor.id}"></div>
+          </div>`;
+        activeBlock.appendChild(d);
+        seqStreamEntry = document.getElementById('seq-body-' + ev.advisor.id);
+        seqStreamText = '';
+      }
+      msgs.scrollTop = 9e9;
+      break;
+    }
+
+    case 'seq_token': {
+      if (seqStreamEntry) {
+        seqStreamText += ev.text;
+        seqStreamEntry.innerHTML = fmt(seqStreamText);
+        msgs.scrollTop = 9e9;
+      }
+      break;
+    }
+
+    case 'seq_entry_done': {
+      if (seqStreamEntry) {
+        seqStreamEntry.classList.remove('streaming');
+        seqStreamEntry.innerHTML = fmt(ev.text);
+        seqStreamEntry = null;
+        seqStreamText = '';
+      }
+      // Save to history
+      chatHist.push({ role: 'assistant', content: ev.text, mid: ev.advisor.id });
+      msgs.scrollTop = 9e9;
+      break;
+    }
+
     // ── Synthesis ─────────────────────────────────────────────
     case 'synth_start': {
       const sb = document.createElement('div');
@@ -373,10 +452,11 @@ function handleSSEEvent(ev) {
         activeSynthBody.innerHTML = fmt(ev.full_text);
         activeSynthBody = null;
       }
-      // Remove chair typing indicator
       document.querySelectorAll('.typing-row').forEach(r => {
         if (r.dataset.advisorId === 'chair') r.remove();
       });
+      // Save to history
+      chatHist.push({ role: 'assistant', content: ev.full_text, mid: ev.advisor.id });
       msgs.scrollTop = 9e9;
       break;
     }
@@ -388,24 +468,23 @@ function handleSSEEvent(ev) {
     }
 
     case 'done': {
-      // Streaming complete — clean up any orphaned typing rows
       document.querySelectorAll('.typing-row').forEach(r => r.remove());
       Object.keys(blockTypingRows).forEach(k => delete blockTypingRows[k]);
       activeBlock = null;
       activeSynthBody = null;
+      seqStreamEntry = null;
+      seqStreamText = '';
       break;
     }
   }
 
-  // Create the solo stream bubble on first token if not yet created
+  // Create the solo stream bubble on first token
   if (ev.type === 'token' && ev.advisor_id !== 'chair' && !soloStreamBubble && !activeBlock) {
     const m = ALL_AGENTS[ev.advisor_id];
     if (m) {
-      // Remove typing row
       document.querySelectorAll('.typing-row').forEach(r => {
         if (r.dataset.advisorId === ev.advisor_id) r.remove();
       });
-      // Create streaming bubble
       soloStreamText = ev.text;
       const row = document.createElement('div');
       row.className = 'msg-row';
@@ -432,6 +511,11 @@ function handleSSEEvent(ev) {
 // ═══════════════════════════════════════
 // SEND
 // ═══════════════════════════════════════
+function trimChatHist(msgs) {
+  // Keep only last MAX_HIST user/assistant pairs for API, strip extra fields
+  return msgs.slice(-(MAX_HIST * 2));
+}
+
 async function send() {
   if (loading) return;
   const inp = document.getElementById('ui'), txt = inp.value.trim();
@@ -450,6 +534,8 @@ async function send() {
   soloStreamText = '';
   activeBlock = null;
   activeSynthBody = null;
+  seqStreamEntry = null;
+  seqStreamText = '';
 
   try {
     const payload = {
@@ -457,7 +543,8 @@ async function send() {
       mode: team === 'inv' ? iMode : team === 'res' ? rMode : nMode,
       advisor_id: selMember,
       debate_members: debMembers,
-      messages: chatHist,
+      messages: trimChatHist(chatHist),
+      enabled_agents: getEnabledAgentIds(),
     };
     await streamChat(payload);
     saveSess();
@@ -599,6 +686,7 @@ function parseCmd(t) {
   const wM = t.match(/^\/watch\s+([A-Za-z\-\.]+)/i);
   if (wM) { addWatch(wM[1].toUpperCase()); addSys(`✓ Added ${wM[1].toUpperCase()} to watchlist`); return true; }
   if (/^\/pm\s/i.test(t)) { setMode('pm'); const q = t.replace(/^\/pm\s*/i, ''); if (q) { document.getElementById('ui').value = q; setTimeout(send, 100); } return true; }
+  if (/^\/round$/i.test(t)) { setMode('round'); return true; }
   if (/^\/council$/i.test(t)) { setMode('all'); return true; }
   if (/^\/news\s/i.test(t)) { const q = t.replace(/^\/news\s+/i, ''); switchTeam('news'); setNMode('all'); setTimeout(() => { document.getElementById('ui').value = q; }, 50); return false; }
   if (/^\/brief\s/i.test(t)) { const q = t.replace(/^\/brief\s*/i, ''); switchTeam('news'); setNMode('brief'); setTimeout(() => { document.getElementById('ui').value = q; }, 50); return false; }
@@ -634,7 +722,11 @@ async function saveSess() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: sesId, preview, team, messages: chatHist }),
     });
-    if (!sessions.find(s => s.id === sesId)) {
+    const existing = sessions.find(s => s.id === sesId);
+    if (existing) {
+      existing.preview = preview;
+      existing.messages = chatHist;
+    } else {
       sessions.unshift({ id: sesId, preview, team, date: new Date().toLocaleDateString(), messages: chatHist });
     }
   } catch(e) {}
@@ -655,13 +747,16 @@ async function loadSess(id) {
   const s = sessions.find(x => x.id === id);
   if (!s) return;
   if (chatHist.length) saveSess();
-  sesId = id; chatHist = [...(s.messages || [])]; team = s.team || 'inv';
+  sesId = id;
+  chatHist = [...(s.messages || [])];
+  team = s.team || 'inv';
   switchTeam(team);
   const msgs = document.getElementById('messages');
   msgs.innerHTML = '';
   for (const m of chatHist) {
-    if (m.role === 'user') addUser(m.content);
-    else if (m.role === 'assistant' && m.mid) {
+    if (m.role === 'user') {
+      addUser(m.content);
+    } else if (m.role === 'assistant' && m.mid) {
       const mem = ALL_AGENTS[m.mid];
       if (mem) addBot(m.content, mem);
     }
@@ -990,7 +1085,7 @@ function togglePick(id) {
 function startDebate() {
   if (debMembers.length < 2) { alert('Select at least 2 members.'); return; }
   closeDebate();
-  if (debTeam === 'inv') { iMode = 'debate'; ['solo','all','pm','debate'].forEach(x => document.getElementById('mi-'+x)?.classList.remove('active')); document.getElementById('mi-debate')?.classList.add('active'); }
+  if (debTeam === 'inv') { iMode = 'debate'; ['solo','all','pm','debate','round'].forEach(x => document.getElementById('mi-'+x)?.classList.remove('active')); document.getElementById('mi-debate')?.classList.add('active'); }
   chatHist = []; updateCtx(); clearMsgs();
 }
 
@@ -1003,6 +1098,7 @@ function qsend(el) {
   if (t.includes('AXP') || t.includes('portfolio') || t.includes('cash')) { switchTeam('inv'); setMode('pm'); }
   else if (t.includes('undervalued') || t.includes('stock')) { switchTeam('res'); setRMode('all'); }
   else if (t.includes('news') || t.includes('today')) { switchTeam('news'); setNMode('all'); }
+  else if (t.includes('round') || t.includes('discuss')) { switchTeam('inv'); setMode('round'); }
   else { switchTeam('inv'); setMode('all'); }
   document.getElementById('ui').value = t;
   send();

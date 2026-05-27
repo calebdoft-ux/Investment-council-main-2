@@ -316,6 +316,13 @@ nav{height:48px;background:var(--s1);border-bottom:1px solid var(--b1);display:f
 .export-btn{background:var(--s2);border:1px solid var(--b2);border-radius:6px;padding:5px 10px;color:var(--t2);font-family:"JetBrains Mono",monospace;font-size:9px;cursor:pointer;transition:all .12s}
 .export-btn:hover{border-color:var(--b3);color:var(--text)}
 
+/* MIC TOGGLE */
+.mem-row{display:flex;align-items:stretch}
+.mem-row .mem-btn{flex:1;width:auto}
+.mic-tog{width:22px;flex-shrink:0;background:none;border:none;border-left:1px solid var(--b1);cursor:pointer;font-size:11px;padding:0;color:var(--green);opacity:.65;transition:all .1s;display:flex;align-items:center;justify-content:center}
+.mic-tog:hover{opacity:1;background:var(--s2)}
+.mic-tog.off{color:var(--b3);opacity:1}
+
 @media(max-width:640px){
   .sidebar{width:0;min-width:0;overflow:hidden}
   .sum-grid{grid-template-columns:repeat(2,1fr)}
@@ -353,6 +360,7 @@ nav{height:48px;background:var(--s1);border-bottom:1px solid var(--b1);display:f
     <div class="mode-grp">
       <button class="mbtn active" id="mi-solo" onclick="setMode('solo')"><span class="mbtn-icon">💬</span><div><div class="mbtn-name">1-on-1</div><div class="mbtn-sub">Solo · streaming</div></div></button>
       <button class="mbtn" id="mi-all" onclick="setMode('all')"><span class="mbtn-icon">⚡</span><div><div class="mbtn-name">Full Council</div><div class="mbtn-sub">All 6 · parallel</div></div></button>
+      <button class="mbtn" id="mi-round" onclick="setMode('round')"><span class="mbtn-icon">🔄</span><div><div class="mbtn-name">Round Table</div><div class="mbtn-sub">Sequential · builds context</div></div></button>
       <button class="mbtn" id="mi-pm" onclick="setMode('pm')"><span class="mbtn-icon">🏦</span><div><div class="mbtn-name">PM Synthesis</div><div class="mbtn-sub">Council + verdict</div></div></button>
       <button class="mbtn" id="mi-debate" onclick="openDebate('inv')"><span class="mbtn-icon">⚔️</span><div><div class="mbtn-name">Debate</div><div class="mbtn-sub">Pick 2+</div></div></button>
     </div>
@@ -365,6 +373,7 @@ nav{height:48px;background:var(--s1);border-bottom:1px solid var(--b1);display:f
     <div class="mode-grp">
       <button class="mbtn active" id="mr-solo" onclick="setRMode('solo')"><span class="mbtn-icon">🔍</span><div><div class="mbtn-name">1-on-1</div><div class="mbtn-sub">Deep dive</div></div></button>
       <button class="mbtn" id="mr-all" onclick="setRMode('all')"><span class="mbtn-icon">🧠</span><div><div class="mbtn-name">Full Team</div><div class="mbtn-sub">All analysts · parallel</div></div></button>
+      <button class="mbtn" id="mr-round" onclick="setRMode('round')"><span class="mbtn-icon">🔄</span><div><div class="mbtn-name">Round Table</div><div class="mbtn-sub">Sequential · builds context</div></div></button>
       <button class="mbtn" id="mr-brief" onclick="setRMode('brief')"><span class="mbtn-icon">📤</span><div><div class="mbtn-name">Brief Investors</div><div class="mbtn-sub">Research → Council</div></div></button>
     </div>
     <div class="sb-div"></div>
@@ -376,6 +385,7 @@ nav{height:48px;background:var(--s1);border-bottom:1px solid var(--b1);display:f
     <div class="mode-grp">
       <button class="mbtn active" id="mn-solo" onclick="setNMode('solo')"><span class="mbtn-icon">📰</span><div><div class="mbtn-name">1-on-1</div><div class="mbtn-sub">Single analyst</div></div></button>
       <button class="mbtn" id="mn-all" onclick="setNMode('all')"><span class="mbtn-icon">📡</span><div><div class="mbtn-name">Full Desk</div><div class="mbtn-sub">All 3 · parallel</div></div></button>
+      <button class="mbtn" id="mn-round" onclick="setNMode('round')"><span class="mbtn-icon">🔄</span><div><div class="mbtn-name">Round Table</div><div class="mbtn-sub">Sequential · builds context</div></div></button>
       <button class="mbtn" id="mn-brief" onclick="setNMode('brief')"><span class="mbtn-icon">📤</span><div><div class="mbtn-name">Brief All Teams</div><div class="mbtn-sub">News → Everyone</div></div></button>
     </div>
     <div class="sb-div"></div>
@@ -403,7 +413,7 @@ nav{height:48px;background:var(--s1);border-bottom:1px solid var(--b1);display:f
       <h1>Your Private<br>Advisory Firm</h1>
       <p>Three specialized teams. Advisors respond in parallel — you see their thinking form in real time. Investors manage your book. Researchers find opportunities. The news desk tracks markets live. They brief each other. You direct them.</p>
       <div class="feat-grid">
-        <div class="feat-c" onclick="switchTeam('inv');setMode('all')"><div class="feat-c-t">⚡ Investment Council</div><div class="feat-c-d">6 advisors run concurrently — fastest responder appears first</div></div>
+        <div class="feat-c" onclick="switchTeam('inv');setMode('round')"><div class="feat-c-t">🔄 Round Table</div><div class="feat-c-d">Advisors respond one by one, each building on what the previous said</div></div>
         <div class="feat-c" onclick="switchTeam('res');setRMode('all')"><div class="feat-c-t">🔬 Research Team</div><div class="feat-c-d">5 analysts find the next opportunity in parallel</div></div>
         <div class="feat-c" onclick="switchTeam('news');setNMode('all')"><div class="feat-c-t">📡 News Desk</div><div class="feat-c-d">Breaking news analyzed from 3 angles simultaneously</div></div>
         <div class="feat-c" onclick="switchTeam('news');setNMode('brief')"><div class="feat-c-t">📤 Brief All Teams</div><div class="feat-c-d">News desk briefs investors and researchers together</div></div>
