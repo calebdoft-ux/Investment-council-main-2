@@ -374,7 +374,7 @@ nav{height:48px;background:var(--s1);border-bottom:1px solid var(--b1);display:f
       <button class="mbtn active" id="mr-solo" onclick="setRMode('solo')"><span class="mbtn-icon">🔍</span><div><div class="mbtn-name">1-on-1</div><div class="mbtn-sub">Deep dive</div></div></button>
       <button class="mbtn" id="mr-all" onclick="setRMode('all')"><span class="mbtn-icon">🧠</span><div><div class="mbtn-name">Full Team</div><div class="mbtn-sub">All analysts · parallel</div></div></button>
       <button class="mbtn" id="mr-round" onclick="setRMode('round')"><span class="mbtn-icon">🔄</span><div><div class="mbtn-name">Round Table</div><div class="mbtn-sub">Sequential · builds context</div></div></button>
-      <button class="mbtn" id="mr-brief" onclick="setRMode('brief')"><span class="mbtn-icon">📤</span><div><div class="mbtn-name">Brief Investors</div><div class="mbtn-sub">Research → Council</div></div></button>
+      <button class="mbtn" id="mr-brief" onclick="setRMode('brief')"><span class="mbtn-icon">📤</span><div><div class="mbtn-name">Brief Investors</div><div class="mbtn-sub">Researchers analyze, then investors react</div></div></button>
     </div>
     <div class="sb-div"></div>
     <div class="sb-lbl">Researchers</div>
@@ -430,18 +430,19 @@ nav{height:48px;background:var(--s1);border-bottom:1px solid var(--b1);display:f
   </div>
   <div class="input-area">
     <div class="input-box">
-      <textarea class="ita" id="ui" placeholder="Ask any team… /add AAPL 5000 · /sell AAPL · /watch TSLA · /news [headline] · /brief [topic] · /pm" rows="1" onkeydown="hk(event)" oninput="ar(this)"></textarea>
+      <textarea class="ita" id="ui" placeholder="Ask the council…" rows="1" onkeydown="hk(event)" oninput="ar(this)"></textarea>
       <button class="send" id="sb" onclick="send()">↑</button>
     </div>
     <div class="hints" id="hints">
-      <span class="hint" onclick="fc('/add ')">/add</span>
-      <span class="hint" onclick="fc('/sell ')">/sell</span>
-      <span class="hint" onclick="fc('/watch ')">/watch</span>
-      <span class="hint" onclick="fc('/news ')">/news</span>
-      <span class="hint" onclick="fc('/brief ')">/brief</span>
-      <span class="hint" onclick="fc('/pm')">/pm</span>
-      <span class="hint" onclick="setMode('all')">/council</span>
-      <span class="hint" onclick="openDebate('inv')">/debate</span>
+      <span class="hint" onclick="fc('/add ')" title="/add TICKER AMOUNT — add a position (e.g. /add AAPL 5000)">/add</span>
+      <span class="hint" onclick="fc('/sell ')" title="/sell TICKER — remove a position from your portfolio">/sell</span>
+      <span class="hint" onclick="fc('/watch ')" title="/watch TICKER — add to watchlist">/watch</span>
+      <span class="hint" onclick="fc('/news ')" title="/news HEADLINE — send a headline to the full news desk">/news</span>
+      <span class="hint" onclick="fc('/brief ')" title="/brief TOPIC — news desk briefs investors and researchers">/brief</span>
+      <span class="hint" onclick="fc('/pm')" title="/pm — council deliberates then the Chair gives a final verdict">/pm</span>
+      <span class="hint" onclick="setMode('all')" title="All 6 investors respond in parallel">/council</span>
+      <span class="hint" onclick="setMode('round')" title="Advisors respond one by one, each seeing what others said">/round</span>
+      <span class="hint" onclick="openDebate('inv')" title="Pick 2–6 members to argue opposite sides">/debate</span>
     </div>
   </div>
 </div>
@@ -452,13 +453,13 @@ nav{height:48px;background:var(--s1);border-bottom:1px solid var(--b1);display:f
   <div class="sec-title">Portfolio
     <span style="margin-left:auto;display:flex;gap:6px">
       <button class="export-btn" onclick="exportCSV()">↓ CSV</button>
-      <button onclick="refreshPrices()" style="background:var(--s2);border:1px solid var(--b1);border-radius:5px;padding:4px 9px;color:var(--t2);font-family:'JetBrains Mono',monospace;font-size:9px;cursor:pointer">↺ Refresh</button>
+      <button id="refreshBtn" onclick="refreshPrices()" title="Fetch live prices for all positions" style="background:var(--s2);border:1px solid var(--b1);border-radius:5px;padding:4px 9px;color:var(--t2);font-family:'JetBrains Mono',monospace;font-size:9px;cursor:pointer">↺ Refresh</button>
       <button onclick="briefAll()" style="background:rgba(212,168,67,.1);border:1px solid var(--gold3);border-radius:5px;padding:4px 9px;color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:9px;cursor:pointer">⚡ Brief Council</button>
     </span>
   </div>
   <div class="sum-grid">
-    <div class="sum-card"><div class="sum-lbl">Book Value</div><div class="sum-val" id="sv">$0</div></div>
-    <div class="sum-card" style="border-color:rgba(82,196,138,.2)"><div class="sum-lbl">Cash <button onclick="editCash()" style="background:none;border:none;color:var(--t3);cursor:pointer;font-size:10px">✎</button></div><div class="sum-val up" id="sc">$0</div></div>
+    <div class="sum-card"><div class="sum-lbl">Total Invested</div><div class="sum-val" id="sv">$0</div></div>
+    <div class="sum-card" style="border-color:rgba(82,196,138,.2)"><div class="sum-lbl">Cash <button onclick="editCash()" title="Edit cash balance" style="background:none;border:none;color:var(--t3);cursor:pointer;font-size:10px">✎</button></div><div class="sum-val up" id="sc">$0</div></div>
     <div class="sum-card"><div class="sum-lbl">Positions</div><div class="sum-val" id="sp">0</div></div>
     <div class="sum-card"><div class="sum-lbl">Unrealized P&amp;L</div><div class="sum-val" id="spnl" style="color:var(--t3)">—</div></div>
   </div>
@@ -500,10 +501,10 @@ nav{height:48px;background:var(--s1);border-bottom:1px solid var(--b1);display:f
       <select class="j-sel" id="jtype"><option value="buy">BUY</option><option value="sell">SELL</option><option value="watch">WATCHING</option></select>
       <input type="number" class="j-in" id="jp" placeholder="Price $" style="width:95px">
       <input type="number" class="j-in" id="jsize" placeholder="Size $" style="width:95px">
-      <input type="text" class="j-in" id="jdate" placeholder="Date" style="width:105px" onfocus="if(!this.value)this.value=new Date().toLocaleDateString()">
+      <input type="date" class="j-in" id="jdate" style="width:140px">
     </div>
     <textarea class="j-ta" id="jthesis" placeholder="Your thesis — why this trade, what's the catalyst, what would make you wrong?"></textarea>
-    <div class="j-row-btns"><button class="j-save" onclick="logTrade()">Log Trade</button></div>
+    <div class="j-row-btns"><button class="j-save" onclick="logTrade()">Log Trade</button><span id="jErr" style="display:none;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--red);margin-left:8px"></span></div>
   </div>
   <div id="jEntries"></div>
 </div>
@@ -528,7 +529,7 @@ nav{height:48px;background:var(--s1);border-bottom:1px solid var(--b1);display:f
   </div>
   <div class="setup-card">
     <div class="sc-title">ℹ️ About</div>
-    <div class="sc-desc">This is a Python/FastAPI application. The API key is configured server-side via <code style="font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--s2);padding:1px 4px;border-radius:3px">.env</code> — it never touches your browser. All advisor responses stream in real time using Server-Sent Events. Portfolio and journal data is persisted in SQLite.</div>
+    <div class="sc-desc">All conversations happen in real time — advisors respond as they think, streamed directly to your screen. Your API key, portfolio, and journal are stored securely on the server and never shared. Use the Portfolio tab to track positions and P&L, the Journal to log trades and get council reviews, and Setup to tell the advisors who you are and what you're trying to achieve.</div>
   </div>
 </div>
 </div>
@@ -539,8 +540,9 @@ nav{height:48px;background:var(--s1);border-bottom:1px solid var(--b1);display:f
 <div class="modal-ov" id="dModal">
   <div class="modal">
     <h3>Stage a Debate</h3>
-    <p>Select 2–6 members to argue opposite sides.</p>
+    <p>Select 2–6 members to argue opposite sides. The Chair will not debate — they synthesize after.</p>
     <div id="dPicks"></div>
+    <div id="dErr" style="color:#e05;font-size:13px;margin-top:8px;display:none"></div>
     <div class="modal-acts">
       <button class="btn-c" onclick="closeDebate()">Cancel</button>
       <button class="btn-go" onclick="startDebate()">Start</button>

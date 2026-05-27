@@ -42,6 +42,8 @@ let lastQuote = null;
 // Per-agent mic state: undefined/true = enabled, false = disabled
 const enabledAgents = {};
 
+let lastPriceRefresh = 0; // timestamp of last price refresh (throttle silent refresh)
+
 // Active streaming state
 let activeBlock = null;
 let activeSynthBody = null;
@@ -154,8 +156,12 @@ function switchTab(t) {
   document.getElementById('pfView').classList.toggle('on', t === 'pf');
   document.getElementById('journalView').classList.toggle('on', t === 'journal');
   document.getElementById('setupView').classList.toggle('on', t === 'setup');
-  if (t === 'pf') { renderPfView(); renderWL(); }
-  if (t === 'journal') renderJournal();
+  if (t === 'pf') { renderPfView(); renderWL(); silentRefreshPrices(); }
+  if (t === 'journal') {
+    renderJournal();
+    const jd = document.getElementById('jdate');
+    if (jd && !jd.value) jd.value = new Date().toISOString().split('T')[0];
+  }
   if (t === 'setup') renderSetup();
 }
 
@@ -234,19 +240,19 @@ function clearMsgs() {
     else if (iMode === 'round') txt = 'Advisors respond one by one, each building on what the previous said. Toggle ● buttons to control who speaks.';
     else if (iMode === 'pm') txt = 'Council deliberates in parallel, then the Chair streams a structured verdict.';
     else if (iMode === 'debate') txt = 'Debate ready. Members argue in parallel.';
-    else txt = 'Select a mode or pick a member from the sidebar.';
+    else txt = 'Pick a mode above or select a member from the sidebar. Try <em>Full Council</em> for all 6 advisors at once, or <em>Round Table</em> to have them build on each other.';
   } else if (team === 'res') {
     if (rMode === 'solo' && selMember) { const m = ALL_AGENTS[selMember]; txt = `<div style="font-size:22px;margin-bottom:8px">${m.emoji}</div><div style="font-size:13px;font-family:'Instrument Serif',serif;color:var(--text);margin-bottom:3px">${m.name}</div><div>${m.role}</div>`; }
     else if (rMode === 'all') txt = 'All enabled researchers run concurrently. Toggle ● to mute/unmute.';
     else if (rMode === 'round') txt = 'Researchers respond sequentially, each building on prior analysis.';
     else if (rMode === 'brief') txt = 'Researchers analyze in parallel, then brief the investment council.';
-    else txt = 'Select a researcher or mode.';
+    else txt = 'Pick a mode above or select a researcher. Try <em>Full Team</em> for all 5 analysts in parallel, or <em>Brief Investors</em> to have research feed the council.';
   } else {
     if (nMode === 'solo' && selMember) { const m = ALL_AGENTS[selMember]; txt = `<div style="font-size:22px;margin-bottom:8px">${m.emoji}</div><div style="font-size:13px;font-family:'Instrument Serif',serif;color:var(--text);margin-bottom:3px">${m.name}</div><div>${m.role}</div>`; }
     else if (nMode === 'all') txt = 'Full news desk runs concurrently. Toggle ● to mute/unmute.';
     else if (nMode === 'round') txt = 'News reporters respond sequentially, building a layered analysis.';
     else if (nMode === 'brief') txt = 'News desk analyzes, then briefs investors and research team.';
-    else txt = 'Paste a headline or ask about current market events.';
+    else txt = 'Paste a news headline or ask about market events. Try <em>Brief All Teams</em> to have news desk, investors, and researchers all react together.';
   }
   d.innerHTML = txt;
   msgs.appendChild(d);
@@ -675,6 +681,19 @@ function esc(t) {
   return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+function fmtDate(d) {
+  if (!d) return '';
+  try {
+    const dt = new Date(d);
+    if (isNaN(dt)) return d;
+    const today = new Date();
+    const yest = new Date(today); yest.setDate(today.getDate() - 1);
+    if (dt.toDateString() === today.toDateString()) return 'Today';
+    if (dt.toDateString() === yest.toDateString()) return 'Yesterday';
+    return dt.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  } catch(e) { return d; }
+}
+
 // ═══════════════════════════════════════
 // COMMANDS
 // ═══════════════════════════════════════
@@ -739,7 +758,7 @@ function renderHist() {
   el.innerHTML = sessions.slice(0, 30).map(s => `
     <div class="hi ${s.id === sesId ? 'active' : ''}" onclick="loadSess('${s.id}')">
       <div class="hi-prev">${s.preview}</div>
-      <div class="hi-meta"><span>${s.date || ''}</span><button class="hi-del" onclick="event.stopPropagation();delSess('${s.id}')">✕</button></div>
+      <div class="hi-meta"><span>${fmtDate(s.date)}</span><button class="hi-del" onclick="event.stopPropagation();delSess('${s.id}')">✕</button></div>
     </div>`).join('');
 }
 
@@ -789,7 +808,8 @@ function renderPfBar() {
 }
 
 async function addPos(tk, size, entry, name, price) {
-  portfolio[tk] = { size, entry: entry||null, price: price||entry||null, name: name||tk };
+  // price should only be set if it's the current market price, not defaulted to entry
+  portfolio[tk] = { size, entry: entry||null, price: price||null, name: name||tk };
   try {
     await fetch('/api/portfolio/position', {
       method: 'PUT',
@@ -828,9 +848,29 @@ async function saveCash() {
   renderPfBar();
 }
 
+async function silentRefreshPrices() {
+  const now = Date.now();
+  if (now - lastPriceRefresh < 60000) return; // throttle: max once per minute
+  const tks = Object.keys(portfolio);
+  if (!tks.length) return;
+  lastPriceRefresh = now;
+  for (const t of tks) {
+    try {
+      const q = await fetch('/api/quotes/' + t).then(r => r.json());
+      if (q?.price) {
+        portfolio[t].price = q.price;
+        await fetch(`/api/portfolio/position/${t}/price?price=${q.price}`, { method: 'PATCH' });
+      }
+    } catch(e) {}
+  }
+  renderPfBar(); renderPfView();
+}
+
 async function refreshPrices() {
   const tks = Object.keys(portfolio);
   if (!tks.length) return;
+  const btn = document.getElementById('refreshBtn');
+  if (btn) { btn.textContent = '↺ …'; btn.disabled = true; }
   addSys('Refreshing prices…');
   for (const t of tks) {
     try {
@@ -841,7 +881,10 @@ async function refreshPrices() {
       }
     } catch(e) {}
   }
-  renderPfBar(); renderPfView(); addSys('✓ Prices updated');
+  lastPriceRefresh = Date.now();
+  renderPfBar(); renderPfView();
+  addSys('✓ Prices updated');
+  if (btn) { btn.textContent = '↺ Refresh'; btn.disabled = false; }
 }
 
 function briefAll() {
@@ -985,9 +1028,18 @@ async function logTrade() {
   const type = document.getElementById('jtype').value;
   const price = parseFloat(document.getElementById('jp').value) || null;
   const size = parseFloat(document.getElementById('jsize').value) || null;
-  const date = document.getElementById('jdate').value || new Date().toLocaleDateString();
+  const rawDate = document.getElementById('jdate').value;
+  const date = rawDate ? new Date(rawDate + 'T12:00:00').toLocaleDateString() : new Date().toLocaleDateString();
   const thesis = document.getElementById('jthesis').value.trim();
-  if (!tk) return;
+
+  const err = document.getElementById('jErr');
+  if (!tk) {
+    if (err) { err.textContent = '✗ Ticker is required.'; err.style.display = 'block'; }
+    document.getElementById('jt').focus();
+    return;
+  }
+  if (err) err.style.display = 'none';
+
   try {
     const entry = await fetch('/api/journal', {
       method: 'POST',
@@ -1008,13 +1060,14 @@ function renderJournal() {
   const el = document.getElementById('jEntries'); if (!el) return;
   if (!journal.length) { el.innerHTML = '<div style="padding:16px;font-family:\'JetBrains Mono\',monospace;font-size:10px;color:var(--t3);text-align:center">No trades yet. Log one above.</div>'; return; }
   el.innerHTML = journal.map(e => `<div class="j-entry">
-    <div class="je-top"><span class="je-sym">${e.ticker||e.tk}</span><span class="je-badge j${e.type}">${e.type.toUpperCase()}</span>${e.price?`<span class="je-px">@ $${e.price}</span>`:''}${e.size?`<span class="je-px">$${e.size.toLocaleString()}</span>`:''}<span class="je-dt">${e.date||''}</span></div>
+    <div class="je-top"><span class="je-sym">${e.ticker||e.tk}</span><span class="je-badge j${e.type}">${e.type.toUpperCase()}</span>${e.price?`<span class="je-px">@ $${e.price}</span>`:''}${e.size?`<span class="je-px">· $${e.size.toLocaleString()}</span>`:''}<span class="je-dt">${e.date||''}</span></div>
     ${e.thesis?`<div class="je-thesis">${e.thesis}</div>`:''}
-    <div class="je-acts"><button class="j-rev" onclick="reviewTrade('${e.id}')">⚔️ Council Review</button><button class="j-del" onclick="delTrade('${e.id}')">Delete</button></div>
+    <div class="je-acts"><button class="j-rev" onclick="reviewTrade('${e.id}')">⚔️ Council Review</button><button class="j-del" onclick="delTrade('${e.id}')">✕ Delete</button></div>
   </div>`).join('');
 }
 
 async function delTrade(id) {
+  if (!confirm('Delete this journal entry? This cannot be undone.')) return;
   journal = journal.filter(e => e.id !== id);
   try { await fetch('/api/journal/' + id, { method: 'DELETE' }); } catch(e) {}
   renderJournal();
@@ -1083,7 +1136,12 @@ function togglePick(id) {
 }
 
 function startDebate() {
-  if (debMembers.length < 2) { alert('Select at least 2 members.'); return; }
+  const err = document.getElementById('dErr');
+  if (debMembers.length < 2) {
+    if (err) { err.textContent = 'Select at least 2 members to start a debate.'; err.style.display = 'block'; }
+    return;
+  }
+  if (err) err.style.display = 'none';
   closeDebate();
   if (debTeam === 'inv') { iMode = 'debate'; ['solo','all','pm','debate','round'].forEach(x => document.getElementById('mi-'+x)?.classList.remove('active')); document.getElementById('mi-debate')?.classList.add('active'); }
   chatHist = []; updateCtx(); clearMsgs();
