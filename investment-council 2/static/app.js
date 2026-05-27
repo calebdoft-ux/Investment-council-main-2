@@ -752,7 +752,7 @@ async function refreshPrices() {
 function briefAll() {
   const tks = Object.keys(portfolio);
   if (!tks.length) { alert('Add positions first.'); return; }
-  const lines = tks.map(t => { const p = portfolio[t]; return `${t}: $${p.size.toLocaleString()}${p.entry?` @ $${p.entry}`:'`}`; }).join(', ');
+  const lines = tks.map(t => { const p = portfolio[t]; return `${t}: $${p.size.toLocaleString()}${p.entry ? ` @ $${p.entry}` : ''}`; }).join(', ');
   const cashStr = cash > 0 ? ` Cash: $${cash.toLocaleString()}.` : '';
   switchTeam('inv'); setMode('pm');
   setTimeout(() => { document.getElementById('ui').value = `Full portfolio review: ${lines}.${cashStr} Biggest risks and what would you change?`; send(); }, 200);
