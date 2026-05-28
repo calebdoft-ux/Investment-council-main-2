@@ -184,3 +184,12 @@ async def get_briefing() -> str:
 
 async def set_briefing(text: str):
     await set_setting("briefing", text)
+
+
+async def get_watchlist() -> list[dict]:
+    val = await get_setting("watchlist")
+    return json.loads(val) if val else []
+
+
+async def set_watchlist(items: list[dict]):
+    await set_setting("watchlist", json.dumps(items))
