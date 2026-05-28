@@ -52,6 +52,8 @@ let soloStreamText = '';
 let seqStreamEntry = null;
 let seqStreamText = '';
 const blockTypingRows = {};
+let activeBlockIsResearch = false;
+let researchBlockTexts = [];
 
 // ═══════════════════════════════════════
 // INIT
@@ -295,6 +297,36 @@ async function streamChat(requestBody) {
   }
 }
 
+function scrollIfBottom() {
+  const m = document.getElementById('messages');
+  if (m && m.scrollHeight - m.scrollTop - m.clientHeight < 120) m.scrollTop = m.scrollHeight;
+}
+
+const TICKER_EXCLUDE = new Set([
+  'THE','AND','FOR','NOT','BUT','ALL','ARE','CAN','GET','HAS','ITS','MAY','NEW',
+  'NOW','OUR','OUT','SEE','SET','TOP','USE','CEO','CFO','EPS','ETF','FCF','GDP',
+  'IPO','FED','SEC','YOY','USD','EUR','GBP','BUY','SELL','HOLD','WATCH','AVOID',
+  'NEWS','RATE','RISK','FUND','HIGH','FLOW','TECH','DATA','CORP','COST','CASH',
+  'DEBT','LOSS','GAIN','LONG','TERM','GOOD','REAL','FULL','NEXT','LAST','BEST',
+]);
+
+function autoAddWatchlist(texts) {
+  const combined = texts.join('\n');
+  const found = new Set();
+  (combined.match(/\$([A-Z]{1,5})\b/g) || []).forEach(m => found.add(m.slice(1)));
+  (combined.match(/(?:BUY|WATCH|AVOID)[:\s]+([A-Z]{2,5})\b/g) || []).forEach(m => {
+    const t = m.match(/([A-Z]{2,5})$/)?.[1]; if (t) found.add(t);
+  });
+  const tickers = [...found].filter(t => t.length >= 2 && !TICKER_EXCLUDE.has(t));
+  if (!tickers.length) return;
+  const newOnes = tickers.filter(t => !watchlist.find(w => w.t === t));
+  if (!newOnes.length) return;
+  newOnes.forEach(t => watchlist.push({ t, added: new Date().toLocaleDateString() }));
+  localStorage.setItem('ic_wl', JSON.stringify(watchlist));
+  renderWL();
+  addSys(`📋 Auto-added to watchlist: ${newOnes.join(', ')}`);
+}
+
 function handleSSEEvent(ev) {
   const msgs = document.getElementById('messages');
 
@@ -319,11 +351,11 @@ function handleSSEEvent(ev) {
         const newText = existing + ev.text;
         activeSynthBody.dataset.rawText = newText;
         activeSynthBody.innerHTML = fmt(newText);
-        msgs.scrollTop = 9e9;
+        scrollIfBottom();
       } else if (soloStreamBubble) {
         soloStreamText += ev.text;
         soloStreamBubble.innerHTML = fmt(soloStreamText);
-        msgs.scrollTop = 9e9;
+        scrollIfBottom();
       }
       break;
     }
@@ -348,7 +380,9 @@ function handleSSEEvent(ev) {
     case 'block_start': {
       activeBlock = mkBlock(ev.title, ev.color, ev.bg);
       msgs.appendChild(activeBlock);
-      msgs.scrollTop = 9e9;
+      activeBlockIsResearch = !!(ev.title && (ev.title.includes('RESEARCH') || ev.title.includes('🔬')));
+      researchBlockTexts = [];
+      msgs.scrollTop = msgs.scrollHeight;
       break;
     }
 
@@ -356,7 +390,7 @@ function handleSSEEvent(ev) {
       if (activeBlock) {
         const row = addDTypingToBlock(activeBlock, ev.advisor);
         blockTypingRows[ev.advisor.id] = row;
-        msgs.scrollTop = 9e9;
+        scrollIfBottom();
       }
       break;
     }
@@ -367,9 +401,10 @@ function handleSSEEvent(ev) {
         delete blockTypingRows[ev.advisor.id];
       }
       if (activeBlock) addDEntry(activeBlock, ev.advisor, ev.text);
+      if (activeBlockIsResearch) researchBlockTexts.push(ev.text);
       // Save to history
       chatHist.push({ role: 'assistant', content: ev.text, mid: ev.advisor.id });
-      msgs.scrollTop = 9e9;
+      scrollIfBottom();
       break;
     }
 
@@ -388,7 +423,10 @@ function handleSSEEvent(ev) {
     }
 
     case 'block_end': {
+      if (activeBlockIsResearch && researchBlockTexts.length) autoAddWatchlist(researchBlockTexts);
       activeBlock = null;
+      activeBlockIsResearch = false;
+      researchBlockTexts = [];
       Object.keys(blockTypingRows).forEach(k => {
         blockTypingRows[k]?.remove();
         delete blockTypingRows[k];
@@ -415,7 +453,7 @@ function handleSSEEvent(ev) {
         seqStreamEntry = document.getElementById('seq-body-' + ev.advisor.id);
         seqStreamText = '';
       }
-      msgs.scrollTop = 9e9;
+      scrollIfBottom();
       break;
     }
 
@@ -423,7 +461,7 @@ function handleSSEEvent(ev) {
       if (seqStreamEntry) {
         seqStreamText += ev.text;
         seqStreamEntry.innerHTML = fmt(seqStreamText);
-        msgs.scrollTop = 9e9;
+        scrollIfBottom();
       }
       break;
     }
@@ -437,7 +475,7 @@ function handleSSEEvent(ev) {
       }
       // Save to history
       chatHist.push({ role: 'assistant', content: ev.text, mid: ev.advisor.id });
-      msgs.scrollTop = 9e9;
+      scrollIfBottom();
       break;
     }
 
@@ -463,7 +501,7 @@ function handleSSEEvent(ev) {
       });
       // Save to history
       chatHist.push({ role: 'assistant', content: ev.full_text, mid: ev.advisor.id });
-      msgs.scrollTop = 9e9;
+      scrollIfBottom();
       break;
     }
 

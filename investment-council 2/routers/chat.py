@@ -407,7 +407,7 @@ async def stream_news_brief(
     user_msg: str,
     pf_ctx: str,
 ) -> AsyncIterator[str]:
-    """News desk runs once; collected results brief investors and researchers — no double-run."""
+    """News desk runs, then The Chair synthesizes a portfolio brief."""
     yield sse({
         "type": "block_start",
         "title": "📡 NEWS DESK ANALYSIS",
@@ -429,7 +429,7 @@ async def stream_news_brief(
         status, a, text = await queue.get()
         if status == "ok":
             yield sse({"type": "block_entry", "advisor": a.to_dict(), "text": text})
-            news_texts.append(f"{a.name}:\n{text}")
+            news_texts.append(f"{a.name} ({a.tag}):\n{text}")
         else:
             yield sse({"type": "block_error", "advisor": a.to_dict(), "message": text})
 
@@ -439,27 +439,40 @@ async def stream_news_brief(
     if not news_texts:
         return
 
+    chair = get_agent("chair")
     news_summary = "\n\n---\n\n".join(news_texts)
-    investor_prompt = (
-        f"NEWS DESK BRIEFING:\n\n{news_summary}\n\nHeadline: \"{user_msg}\"\n\n"
-        "How does this affect our portfolio and investment outlook?"
-    )
-    researcher_prompt = (
-        f"NEWS DESK BRIEFING:\n\n{news_summary}\n\nNews: \"{user_msg}\"\n\n"
-        "Does this create research opportunities or change sector outlook?"
+    chair_prompt = (
+        f'News desk briefing on: "{user_msg}"\n\n'
+        f"Reporter findings:\n\n{news_summary}\n\n"
+        "Write a concise investment brief in exactly THREE sections:\n\n"
+        "REPORTER SUMMARIES — 1-2 sentences per reporter capturing their key point.\n\n"
+        "PORTFOLIO IMPACT — how this news specifically affects our current positions "
+        "(reference actual tickers and dollar amounts from the portfolio).\n\n"
+        "RECOMMENDED ACTION — clear, specific next step: what to buy, sell, watch, or hold, "
+        "with sizing guidance. Be direct."
     )
 
-    async for event in stream_concurrent(
-        client, INVESTORS[:3], investor_prompt, pf_ctx,
-        "⚡ INVESTOR REACTION", "var(--gold)", "rgba(212,168,67,.12)",
-    ):
-        yield event
+    yield sse({"type": "synth_start"})
+    yield sse({"type": "typing", "advisor": chair.to_dict()})
 
-    async for event in stream_concurrent(
-        client, [RESEARCHERS[0], RESEARCHERS[3]], researcher_prompt, pf_ctx,
-        "🔬 RESEARCH REACTION", "var(--teal)", "rgba(74,184,196,.12)",
-    ):
-        yield event
+    full_text: list[str] = []
+    async with client.messages.stream(
+        model=settings.MODEL,
+        max_tokens=settings.MAX_TOKENS,
+        system=chair.system + pf_ctx,
+        messages=[{"role": "user", "content": chair_prompt}],
+        tools=[WEB_SEARCH_TOOL],
+        extra_headers={"anthropic-beta": WEB_SEARCH_BETA},
+    ) as stream:
+        async for text in stream.text_stream:
+            full_text.append(text)
+            yield sse({"type": "token", "advisor_id": "chair", "text": text})
+
+    yield sse({
+        "type": "synth_complete",
+        "advisor": chair.to_dict(),
+        "full_text": "".join(full_text),
+    })
 
 
 # ─── Main router ──────────────────────────────────────────────────────────────
